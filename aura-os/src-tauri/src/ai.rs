@@ -22,7 +22,6 @@ pub struct OllamaRequest {
 #[derive(Deserialize, Debug)]
 pub struct OllamaResponse {
     pub message: ChatMessage,
-    pub done: bool,
 }
 
 #[derive(Clone)]
@@ -51,10 +50,6 @@ impl AIService {
             role: role.to_string(),
             content: content.to_string(),
         });
-    }
-
-    pub async fn get_history(&self) -> Vec<ChatMessage> {
-        self.history.lock().await.clone()
     }
 
     pub async fn chat(&self) -> Result<Pin<Box<dyn Stream<Item = String> + Send>>, reqwest::Error> {

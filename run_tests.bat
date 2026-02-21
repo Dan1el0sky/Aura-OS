@@ -9,8 +9,16 @@ if %errorlevel% neq 0 (
 )
 echo Backend tests passed.
 
-echo Running Frontend Check (Build)...
+echo Installing Frontend Dependencies...
 cd ..
+call npm install
+if %errorlevel% neq 0 (
+    echo Frontend dependencies install failed!
+    pause
+    exit /b 1
+)
+
+echo Running Frontend Check (Build)...
 call npm run build
 if %errorlevel% neq 0 (
     echo Frontend build failed!

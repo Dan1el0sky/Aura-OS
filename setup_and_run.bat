@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo Aura OS - Setup & Run
+echo Aura OS - Setup and Run
 echo ========================================
 
 :: Check Dependencies
