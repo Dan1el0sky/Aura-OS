@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { Send, Terminal, X, Check, Loader2 } from 'lucide-react';
+import { Send, Terminal, X, Check, Loader2, Settings as SettingsIcon } from 'lucide-react';
 import { Howl } from 'howler';
+import Settings from './Settings';
 
 // Sounds
-// Using simple base64 data URIs or paths. Assuming paths for now.
 const soundSent = new Howl({ src: ['/sounds/sent.mp3'], volume: 0.5 });
 const soundReceived = new Howl({ src: ['/sounds/received.mp3'], volume: 0.5 });
 const soundExecute = new Howl({ src: ['/sounds/execute.mp3'], volume: 0.7 });
@@ -27,7 +27,20 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingTool, setPendingTool] = useState<ToolCall | null>(null);
   const [showFeedback, setShowFeedback] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [currentModel, setCurrentModel] = useState('qwen2.5:0.5b');
+  const [isDarkMode, setIsDarkMode] = useState(true);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Initial theme setup
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   useEffect(() => {
     let unlistenStream: UnlistenFn | undefined;
@@ -56,7 +69,17 @@ export default function App() {
         setIsProcessing(false);
         setMessages((prev) => {
              const last = prev[prev.length - 1];
+             // Filter out JSON tool calls from chat display
              if (last && last.role === 'assistant') {
+                 try {
+                     const json = JSON.parse(last.content);
+                     if (json.tool) {
+                         // Remove the message entirely if it's just a tool call
+                         return prev.slice(0, -1);
+                     }
+                 } catch (e) {
+                     // Not JSON, keep it
+                 }
                  return [...prev.slice(0, -1), { ...last, isStreaming: false }];
              }
              return prev;
@@ -75,6 +98,11 @@ export default function App() {
 
   const sendMessage = async () => {
     if (!input.trim() || isProcessing) return;
+
+    if (pendingTool) {
+      denyTool();
+    }
+
     const msg = input;
     setInput('');
     setIsProcessing(true);
@@ -115,15 +143,38 @@ export default function App() {
   }, [messages, pendingTool, isProcessing]);
 
   return (
-    <div className="flex flex-col h-screen bg-neutral-900 text-gray-100 font-sans selection:bg-indigo-500/30 overflow-hidden">
+    <div className={`flex flex-col h-screen font-sans selection:bg-indigo-500/30 overflow-hidden transition-colors duration-300 ${isDarkMode ? 'bg-neutral-900 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <Settings
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+          currentModel={currentModel}
+          onModelChange={setCurrentModel}
+          isDarkMode={isDarkMode}
+          onThemeToggle={() => setIsDarkMode(!isDarkMode)}
+        />
+      )}
+
+      {/* Header / Settings Button */}
+      <div className="absolute top-4 right-4 z-20">
+        <button
+          onClick={() => setShowSettings(true)}
+          className={`p-2 rounded-full transition-all shadow-md ${isDarkMode ? 'bg-neutral-800 text-gray-400 hover:text-white hover:bg-neutral-700' : 'bg-white text-gray-600 hover:text-indigo-600 hover:bg-gray-100 border border-gray-200'}`}
+        >
+          <SettingsIcon size={20} />
+        </button>
+      </div>
+
       {/* Main Chat Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
         {messages.length === 0 && (
-          <div className="flex h-full items-center justify-center flex-col text-neutral-600 gap-4 opacity-50">
-             <div className="w-16 h-16 rounded-full bg-neutral-800 flex items-center justify-center">
+          <div className="flex h-full items-center justify-center flex-col gap-4 opacity-50">
+             <div className={`w-16 h-16 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-neutral-800 text-neutral-600' : 'bg-white text-gray-400 shadow-md'}`}>
                 <Terminal size={32} />
              </div>
-             <p>Aura OS initialized. Ready for commands.</p>
+             <p className={isDarkMode ? 'text-neutral-500' : 'text-gray-400'}>Aura OS initialized. Ready for commands.</p>
           </div>
         )}
 
@@ -132,7 +183,9 @@ export default function App() {
             <div className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-5 py-3 shadow-sm ${
               m.role === 'user'
                 ? 'bg-indigo-600 text-white rounded-br-none'
-                : 'bg-neutral-800 text-gray-200 rounded-bl-none border border-neutral-700'
+                : isDarkMode
+                  ? 'bg-neutral-800 text-gray-200 rounded-bl-none border border-neutral-700'
+                  : 'bg-white text-gray-800 rounded-bl-none border border-gray-200 shadow-sm'
             }`}>
               <div className="whitespace-pre-wrap leading-relaxed text-[15px]">{m.content}</div>
             </div>
@@ -142,15 +195,15 @@ export default function App() {
         {/* Pending Tool Card */}
         {pendingTool && (
           <div className="flex justify-start w-full animate-in fade-in slide-in-from-bottom-4 duration-300">
-             <div className="max-w-md w-full bg-neutral-800 border-l-4 border-yellow-500 rounded-r-xl p-5 shadow-xl ring-1 ring-white/5">
+             <div className={`max-w-md w-full border-l-4 border-yellow-500 rounded-r-xl p-5 shadow-xl ring-1 ${isDarkMode ? 'bg-neutral-800 ring-white/5' : 'bg-white ring-black/5 shadow-yellow-500/10'}`}>
                 <div className="flex items-center gap-4 mb-4">
                    <div className="p-3 bg-yellow-500/10 rounded-full text-yellow-500 ring-1 ring-yellow-500/20">
                       <Terminal size={24} />
                    </div>
                    <div>
-                      <h3 className="font-bold text-white tracking-wide">Permission Request</h3>
-                      <p className="text-sm text-gray-400 mt-1">
-                        Tool: <span className="font-mono text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">{pendingTool.tool}</span>
+                      <h3 className={`font-bold tracking-wide ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Permission Request</h3>
+                      <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Tool: <span className="font-mono text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded border border-yellow-500/20">{pendingTool.tool}</span>
                       </p>
                    </div>
                 </div>
@@ -163,7 +216,7 @@ export default function App() {
                    </button>
                    <button
                       onClick={denyTool}
-                      className="flex items-center justify-center gap-2 bg-neutral-700 hover:bg-neutral-600 active:scale-95 text-gray-300 px-4 py-2.5 rounded-lg transition-all font-medium text-sm"
+                      className={`flex items-center justify-center gap-2 active:scale-95 px-4 py-2.5 rounded-lg transition-all font-medium text-sm ${isDarkMode ? 'bg-neutral-700 hover:bg-neutral-600 text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}
                    >
                       <X size={18} strokeWidth={2.5} /> Deny
                    </button>
@@ -174,9 +227,9 @@ export default function App() {
 
         {isProcessing && !pendingTool && (!messages.length || messages[messages.length-1].role === 'user') && (
            <div className="flex justify-start">
-              <div className="bg-neutral-800 px-4 py-3 rounded-2xl rounded-bl-none border border-neutral-700 flex items-center gap-2 animate-pulse">
-                 <Loader2 size={16} className="animate-spin text-indigo-400" />
-                 <span className="text-gray-400 text-sm">Thinking...</span>
+              <div className={`px-4 py-3 rounded-2xl rounded-bl-none border flex items-center gap-2 animate-pulse ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-gray-200 shadow-sm'}`}>
+                 <Loader2 size={16} className="animate-spin text-indigo-500" />
+                 <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Thinking...</span>
               </div>
            </div>
         )}
@@ -185,7 +238,7 @@ export default function App() {
       </div>
 
       {/* Input Area */}
-      <div className="p-4 md:p-6 bg-neutral-900/80 backdrop-blur-xl border-t border-neutral-800 z-10">
+      <div className={`p-4 md:p-6 backdrop-blur-xl border-t z-10 ${isDarkMode ? 'bg-neutral-900/80 border-neutral-800' : 'bg-white/80 border-gray-200'}`}>
         <form
           onSubmit={(e) => { e.preventDefault(); sendMessage(); }}
           className="relative max-w-4xl mx-auto group"
@@ -195,7 +248,7 @@ export default function App() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type a message or command..."
-            className="w-full bg-neutral-800/50 hover:bg-neutral-800 text-white placeholder-gray-500 rounded-xl pl-6 pr-14 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:bg-neutral-800 border border-neutral-700 transition-all shadow-lg"
+            className={`w-full rounded-xl pl-6 pr-14 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 border transition-all shadow-lg ${isDarkMode ? 'bg-neutral-800/50 hover:bg-neutral-800 text-white placeholder-gray-500 focus:bg-neutral-800 border-neutral-700' : 'bg-white hover:bg-gray-50 text-gray-900 placeholder-gray-400 focus:bg-white border-gray-200'}`}
             disabled={isProcessing}
             autoFocus
           />
@@ -212,7 +265,7 @@ export default function App() {
       {/* Cool Square Feedback Overlay */}
       {showFeedback && (
         <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-50">
-           <div className="bg-neutral-900/90 backdrop-blur-2xl border border-neutral-700 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6 animate-in zoom-in-95 duration-300 ring-1 ring-white/10">
+           <div className={`backdrop-blur-2xl border p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6 animate-in zoom-in-95 duration-300 ring-1 ${isDarkMode ? 'bg-neutral-900/90 border-neutral-700 ring-white/10' : 'bg-white/90 border-gray-200 ring-black/5 shadow-indigo-500/20'}`}>
               <div className="relative">
                  <div className="absolute inset-0 bg-green-500 blur-xl opacity-20 rounded-full animate-pulse"></div>
                  <div className="relative w-20 h-20 bg-gradient-to-tr from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-green-900/50">
@@ -220,9 +273,9 @@ export default function App() {
                  </div>
               </div>
               <div className="text-center space-y-1">
-                 <h2 className="text-2xl font-bold text-white tracking-tight">Executed</h2>
-                 <div className="px-4 py-1.5 bg-neutral-800 rounded-full border border-neutral-700 inline-block">
-                    <span className="font-mono text-sm text-gray-300 tracking-wide uppercase">{showFeedback}</span>
+                 <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Executed</h2>
+                 <div className={`px-4 py-1.5 rounded-full border inline-block ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-gray-100 border-gray-200'}`}>
+                    <span className={`font-mono text-sm tracking-wide uppercase ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{showFeedback}</span>
                  </div>
               </div>
            </div>

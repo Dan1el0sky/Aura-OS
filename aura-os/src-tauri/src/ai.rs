@@ -55,7 +55,7 @@ impl AIService {
     pub async fn chat(&self) -> Result<Pin<Box<dyn Stream<Item = String> + Send>>, reqwest::Error> {
         let history = self.history.lock().await.clone();
         let request = OllamaRequest {
-            model: self.model.clone(),
+            model: self.model.clone(), // Uses the current model
             messages: history,
             stream: true,
         };
