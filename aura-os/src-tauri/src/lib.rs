@@ -70,10 +70,21 @@ async fn set_ollama_model(
     Ok(())
 }
 
+#[tauri::command]
+async fn reset_chat(
+    state: State<'_, Arc<Mutex<AIService>>>
+) -> Result<(), String> {
+    let ai_service = state.lock().await;
+    ai_service.reset_history().await;
+    Ok(())
+}
+
 fn extract_tool_json(text: &str) -> Option<serde_json::Value> {
+    // Attempt to clean the text to find the JSON object.
+    // Sometimes models output extra whitespace or text like "Here is the tool: { ... }"
     if let Some(start) = text.find('{') {
         if let Some(end) = text.rfind('}') {
-            let json_str = &text[start..=end];
+            let json_str = &text[start..=end+1]; // Include the closing brace
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
                 if val.get("tool").is_some() {
                     return Some(val);
@@ -102,7 +113,8 @@ Rules:
 5. Format: {"tool": "TOOL_NAME", "params": {...} (optional)}.
 6. If asked 'what can you do?', list your capabilities.
 7. If just chatting, be brief.
-8. If the user greets you, reply simply (e.g., 'Ready.')."#;
+8. If the user greets you (e.g., 'hi', 'hello'), DO NOT use a tool. Just reply 'Ready.' or 'Hello.'.
+9. ONLY use a tool if the user EXPLICITLY asks for an action (e.g., 'mute', 'lock')."#;
 
     let ai_service = Arc::new(Mutex::new(AIService::new("qwen2.5:0.5b".to_string(), SYSTEM_PROMPT)));
     let command_executor = Arc::new(Mutex::new(CommandExecutor::new()));
@@ -116,7 +128,8 @@ Rules:
             send_message,
             execute_tool,
             get_ollama_models,
-            set_ollama_model
+            set_ollama_model,
+            reset_chat
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

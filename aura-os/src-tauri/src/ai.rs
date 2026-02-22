@@ -87,4 +87,18 @@ impl AIService {
 
         Ok(Box::pin(output_stream))
     }
+
+    pub async fn reset_history(&self) {
+        let mut history = self.history.lock().await;
+        // Keep system prompt if it exists (first message)
+        let system_prompt = if !history.is_empty() && history[0].role == "system" {
+            Some(history[0].clone())
+        } else {
+            None
+        };
+        history.clear();
+        if let Some(sys) = system_prompt {
+            history.push(sys);
+        }
+    }
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { Send, Terminal, X, Check, Loader2, Settings as SettingsIcon } from 'lucide-react';
+import { Send, Terminal, X, Check, Loader2, Settings as SettingsIcon, Trash2 } from 'lucide-react';
 import { Howl } from 'howler';
 import Settings from './Settings';
 
@@ -69,17 +69,27 @@ export default function App() {
         setIsProcessing(false);
         setMessages((prev) => {
              const last = prev[prev.length - 1];
-             // Filter out JSON tool calls from chat display
+             // Filter out JSON tool calls or empty messages from chat display
              if (last && last.role === 'assistant') {
+                 // Try to detect JSON
+                 let isJson = false;
                  try {
                      const json = JSON.parse(last.content);
                      if (json.tool) {
-                         // Remove the message entirely if it's just a tool call
-                         return prev.slice(0, -1);
+                         isJson = true;
                      }
                  } catch (e) {
-                     // Not JSON, keep it
+                     // Check if it looks like JSON but maybe incomplete or wrapped
+                     if (last.content.trim().startsWith('{') && last.content.includes('"tool"')) {
+                         isJson = true;
+                     }
                  }
+
+                 if (isJson || !last.content.trim()) {
+                     // Remove the message entirely if it's just a tool call or empty
+                     return prev.slice(0, -1);
+                 }
+
                  return [...prev.slice(0, -1), { ...last, isStreaming: false }];
              }
              return prev;
@@ -138,6 +148,17 @@ export default function App() {
     setMessages((prev) => [...prev, { role: 'assistant', content: "(Action cancelled by user)" }]);
   };
 
+  const resetChat = async () => {
+      try {
+          await invoke('reset_chat');
+          setMessages([]);
+          setPendingTool(null);
+          setShowFeedback(null);
+      } catch (e) {
+          console.error("Failed to reset chat:", e);
+      }
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, pendingTool, isProcessing]);
@@ -157,10 +178,18 @@ export default function App() {
         />
       )}
 
-      {/* Header / Settings Button */}
-      <div className="absolute top-4 right-4 z-20">
+      {/* Header Buttons */}
+      <div className="absolute top-4 right-4 z-20 flex gap-2">
+        <button
+          onClick={resetChat}
+          title="New Chat"
+          className={`p-2 rounded-full transition-all shadow-md ${isDarkMode ? 'bg-neutral-800 text-gray-400 hover:text-red-400 hover:bg-neutral-700' : 'bg-white text-gray-600 hover:text-red-600 hover:bg-gray-100 border border-gray-200'}`}
+        >
+          <Trash2 size={20} />
+        </button>
         <button
           onClick={() => setShowSettings(true)}
+          title="Settings"
           className={`p-2 rounded-full transition-all shadow-md ${isDarkMode ? 'bg-neutral-800 text-gray-400 hover:text-white hover:bg-neutral-700' : 'bg-white text-gray-600 hover:text-indigo-600 hover:bg-gray-100 border border-gray-200'}`}
         >
           <SettingsIcon size={20} />
