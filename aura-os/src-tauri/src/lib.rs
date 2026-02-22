@@ -8,6 +8,7 @@ use tauri::{State, Emitter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use futures::StreamExt;
+use std::sync::atomic::Ordering;
 
 #[tauri::command]
 async fn send_message(
@@ -15,25 +16,34 @@ async fn send_message(
     state: State<'_, Arc<Mutex<AIService>>>,
     message: String,
 ) -> Result<(), String> {
-    let ai_service = state.lock().await;
-
-    // Add user message
-    ai_service.add_message("user", &message).await;
+    let ai_service_clone = {
+        let ai_service = state.lock().await;
+        // Reset abort flag
+        ai_service.abort_flag.store(false, Ordering::Relaxed);
+        // Add user message
+        ai_service.add_message("user", &message).await;
+        ai_service.clone()
+    }; // Drop lock here
 
     // Start chat stream
-    let mut stream = ai_service.chat().await.map_err(|e| e.to_string())?;
+    let mut stream = ai_service_clone.chat().await.map_err(|e| e.to_string())?;
 
     let mut full_response = String::new();
 
     while let Some(chunk) = stream.next().await {
+        // Check for abort
+        if ai_service_clone.abort_flag.load(Ordering::Relaxed) {
+             break;
+        }
+
         if !chunk.is_empty() {
              full_response.push_str(&chunk);
              app_handle.emit("chat-stream", &chunk).map_err(|e| e.to_string())?;
         }
     }
 
-    // Add assistant response to history
-    ai_service.add_message("assistant", &full_response).await;
+    // Add assistant response to history (shared history via Arc<Mutex>)
+    ai_service_clone.add_message("assistant", &full_response).await;
 
     // Check for tool call
     if let Some(tool_json) = extract_tool_json(&full_response) {
@@ -42,6 +52,15 @@ async fn send_message(
 
     app_handle.emit("chat-done", ()).map_err(|e| e.to_string())?;
 
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_generation(
+    state: State<'_, Arc<Mutex<AIService>>>
+) -> Result<(), String> {
+    let ai_service = state.lock().await;
+    ai_service.abort_flag.store(true, Ordering::Relaxed);
     Ok(())
 }
 
@@ -126,6 +145,7 @@ Rules:
         .manage(command_executor)
         .invoke_handler(tauri::generate_handler![
             send_message,
+            stop_generation,
             execute_tool,
             get_ollama_models,
             set_ollama_model,

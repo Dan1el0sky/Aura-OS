@@ -47,7 +47,7 @@ impl SystemControl for CommandExecutor {
                 // This resets volume to 0 then moves it up.
                 if let Some(p) = params {
                     if let Some(level) = p.get("level").and_then(|v| v.as_u64()) {
-                         let script = format!("$obj = new-object -com wscript.shell; for($i=0;$i-lt 50;$i++){{$obj.sendkeys([char]0xAE)}}; for($i=0;$i-lt {});$i++){{$obj.sendkeys([char]0xAF)}}", level / 2);
+                         let script = format!("$obj = new-object -com wscript.shell; for($i=0;$i-lt 50;$i++){{$obj.sendkeys([char]0xAE)}}; for($i=0;$i-lt {};$i++){{$obj.sendkeys([char]0xAF)}}", level / 2);
                          run_powershell(&script)
                     } else {
                         Err("Missing level parameter".to_string())

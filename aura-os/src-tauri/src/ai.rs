@@ -5,6 +5,7 @@ use std::pin::Pin;
 use futures::stream::Stream;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChatMessage {
@@ -29,6 +30,7 @@ pub struct AIService {
     client: Client,
     pub history: Arc<Mutex<Vec<ChatMessage>>>,
     pub model: String,
+    pub abort_flag: Arc<AtomicBool>,
 }
 
 impl AIService {
@@ -41,6 +43,7 @@ impl AIService {
             client: Client::new(),
             history: Arc::new(Mutex::new(history)),
             model,
+            abort_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 

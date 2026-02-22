@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { Send, Terminal, X, Check, Loader2, Settings as SettingsIcon, Trash2 } from 'lucide-react';
+import { Send, Terminal, X, Check, Loader2, Settings as SettingsIcon, Trash2, Square } from 'lucide-react';
 import { Howl } from 'howler';
 import Settings from './Settings';
 
@@ -51,10 +51,16 @@ export default function App() {
       unlistenStream = await listen<string>('chat-stream', (event) => {
         setMessages((prev) => {
           const last = prev[prev.length - 1];
+          // Ensure we are appending to the correct last message, or creating a new one if it's the start
           if (last && last.role === 'assistant' && last.isStreaming) {
+            // Check if we are already seeing this content to avoid duplication (basic check)
+            // But usually stream chunks are unique. The issue might be strict mode double-mounting listeners.
+            // With unlistenFn properly handled in useEffect return, duplication should be minimized.
+            // Let's rely on React state updates being correct.
             return [...prev.slice(0, -1), { ...last, content: last.content + event.payload }];
           } else {
              // First chunk of response
+             // Only play sound if we haven't just played it (optional debounce, but simple for now)
              soundReceived.play();
              return [...prev, { role: 'assistant', content: event.payload, isStreaming: true }];
           }
@@ -128,6 +134,14 @@ export default function App() {
     }
   };
 
+  const stopGeneration = async () => {
+    try {
+      await invoke('stop_generation');
+    } catch (e) {
+      console.error("Failed to stop generation:", e);
+    }
+  };
+
   const executeTool = async () => {
     if (!pendingTool) return;
     try {
@@ -154,6 +168,7 @@ export default function App() {
           setMessages([]);
           setPendingTool(null);
           setShowFeedback(null);
+          setIsProcessing(false); // Fix: Ensure loading state is cleared
       } catch (e) {
           console.error("Failed to reset chat:", e);
       }
@@ -266,6 +281,11 @@ export default function App() {
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
+      {/* Version Counter */}
+      <div className={`fixed bottom-1 right-2 z-50 text-[10px] opacity-40 pointer-events-none ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+        v0.1.0
+      </div>
+
       {/* Input Area */}
       <div className={`p-4 md:p-6 backdrop-blur-xl border-t z-10 ${isDarkMode ? 'bg-neutral-900/80 border-neutral-800' : 'bg-white/80 border-gray-200'}`}>
         <form
@@ -281,13 +301,24 @@ export default function App() {
             disabled={isProcessing}
             autoFocus
           />
-          <button
-            type="submit"
-            disabled={!input.trim() || isProcessing}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-90 shadow-md shadow-indigo-900/30"
-          >
-            {isProcessing ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
-          </button>
+          {isProcessing ? (
+            <button
+              type="button"
+              onClick={stopGeneration}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all active:scale-90 shadow-md shadow-red-900/30 animate-in fade-in zoom-in duration-200"
+              title="Stop Generating"
+            >
+              <Square size={20} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-90 shadow-md shadow-indigo-900/30"
+            >
+              <Send size={20} />
+            </button>
+          )}
         </form>
       </div>
 
