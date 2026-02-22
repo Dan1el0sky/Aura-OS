@@ -46,66 +46,61 @@ export default function App() {
     let unlistenStream: UnlistenFn | undefined;
     let unlistenDone: UnlistenFn | undefined;
     let unlistenTool: UnlistenFn | undefined;
+    let isMounted = true;
 
     const setupListeners = async () => {
-      unlistenStream = await listen<string>('chat-stream', (event) => {
+      const uStream = await listen<string>('chat-stream', (event) => {
+        if (!isMounted) return;
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          // Ensure we are appending to the correct last message, or creating a new one if it's the start
           if (last && last.role === 'assistant' && last.isStreaming) {
-            // Check if we are already seeing this content to avoid duplication (basic check)
-            // But usually stream chunks are unique. The issue might be strict mode double-mounting listeners.
-            // With unlistenFn properly handled in useEffect return, duplication should be minimized.
-            // Let's rely on React state updates being correct.
             return [...prev.slice(0, -1), { ...last, content: last.content + event.payload }];
           } else {
-             // First chunk of response
-             // Only play sound if we haven't just played it (optional debounce, but simple for now)
              soundReceived.play();
              return [...prev, { role: 'assistant', content: event.payload, isStreaming: true }];
           }
         });
       });
+      if (!isMounted) { uStream(); return; }
+      unlistenStream = uStream;
 
-      unlistenTool = await listen<ToolCall>('tool-detected', (event) => {
+      const uTool = await listen<ToolCall>('tool-detected', (event) => {
+        if (!isMounted) return;
         setPendingTool(event.payload);
       });
+      if (!isMounted) { uTool(); if (unlistenStream) unlistenStream(); return; }
+      unlistenTool = uTool;
 
-      unlistenDone = await listen('chat-done', () => {
+      const uDone = await listen('chat-done', () => {
+        if (!isMounted) return;
         setIsProcessing(false);
         setMessages((prev) => {
              const last = prev[prev.length - 1];
-             // Filter out JSON tool calls or empty messages from chat display
              if (last && last.role === 'assistant') {
-                 // Try to detect JSON
                  let isJson = false;
                  try {
                      const json = JSON.parse(last.content);
-                     if (json.tool) {
-                         isJson = true;
-                     }
+                     if (json.tool) { isJson = true; }
                  } catch (e) {
-                     // Check if it looks like JSON but maybe incomplete or wrapped
-                     if (last.content.trim().startsWith('{') && last.content.includes('"tool"')) {
-                         isJson = true;
-                     }
+                     if (last.content.trim().startsWith('{') && last.content.includes('"tool"')) { isJson = true; }
                  }
 
                  if (isJson || !last.content.trim()) {
-                     // Remove the message entirely if it's just a tool call or empty
                      return prev.slice(0, -1);
                  }
-
                  return [...prev.slice(0, -1), { ...last, isStreaming: false }];
              }
              return prev;
         });
       });
+      if (!isMounted) { uDone(); if (unlistenStream) unlistenStream(); if (unlistenTool) unlistenTool(); return; }
+      unlistenDone = uDone;
     };
 
     setupListeners();
 
     return () => {
+      isMounted = false;
       if (unlistenStream) unlistenStream();
       if (unlistenDone) unlistenDone();
       if (unlistenTool) unlistenTool();
@@ -194,25 +189,27 @@ export default function App() {
       )}
 
       {/* Header Buttons */}
-      <div className="absolute top-4 right-4 z-20 flex gap-2">
-        <button
-          onClick={resetChat}
-          title="New Chat"
-          className={`p-2 rounded-full transition-all shadow-md ${isDarkMode ? 'bg-neutral-800 text-gray-400 hover:text-red-400 hover:bg-neutral-700' : 'bg-white text-gray-600 hover:text-red-600 hover:bg-gray-100 border border-gray-200'}`}
-        >
-          <Trash2 size={20} />
-        </button>
-        <button
-          onClick={() => setShowSettings(true)}
-          title="Settings"
-          className={`p-2 rounded-full transition-all shadow-md ${isDarkMode ? 'bg-neutral-800 text-gray-400 hover:text-white hover:bg-neutral-700' : 'bg-white text-gray-600 hover:text-indigo-600 hover:bg-gray-100 border border-gray-200'}`}
-        >
-          <SettingsIcon size={20} />
-        </button>
+      <div className="absolute top-0 right-0 w-full p-4 z-20 flex justify-end gap-2 pointer-events-none bg-gradient-to-b from-black/10 to-transparent">
+        <div className="pointer-events-auto flex gap-2">
+          <button
+            onClick={resetChat}
+            title="New Chat"
+            className={`p-2 rounded-full transition-all shadow-md ${isDarkMode ? 'bg-neutral-800 text-gray-400 hover:text-red-400 hover:bg-neutral-700' : 'bg-white text-gray-600 hover:text-red-600 hover:bg-gray-100 border border-gray-200'}`}
+          >
+            <Trash2 size={20} />
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+            className={`p-2 rounded-full transition-all shadow-md ${isDarkMode ? 'bg-neutral-800 text-gray-400 hover:text-white hover:bg-neutral-700' : 'bg-white text-gray-600 hover:text-indigo-600 hover:bg-gray-100 border border-gray-200'}`}
+          >
+            <SettingsIcon size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
+      <div className="flex-1 overflow-y-auto p-4 pt-16 space-y-4 scroll-smooth">
         {messages.length === 0 && (
           <div className="flex h-full items-center justify-center flex-col gap-4 opacity-50">
              <div className={`w-16 h-16 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-neutral-800 text-neutral-600' : 'bg-white text-gray-400 shadow-md'}`}>
