@@ -46,6 +46,15 @@ async fn send_message(
     ai_service_clone.add_message("assistant", &full_response).await;
 
     // Check for tool call
+    // Note: If multiple tools are outputted, extract_tool_json might fail if it naively takes first '{' and last '}'.
+    // The previous implementation took outer braces.
+    // If output is `{"tool":...}{"tool":...}`, start=0, end=last.
+    // serde_json::from_str might fail on concatenated JSONs.
+    // Ideally we should look for individual objects or handle concatenated JSON.
+    // But given the system prompt asks for "concise" and "STRICTLY OUTPUT JSON ONLY",
+    // and usually one tool per turn, we will try to make extract_tool_json robust enough.
+    // If it fails to parse the whole string, we could try to find the FIRST valid JSON.
+    // But for now, let's stick to the simple fix for the panic.
     if let Some(tool_json) = extract_tool_json(&full_response) {
         app_handle.emit("tool-detected", &tool_json).map_err(|e| e.to_string())?;
     }
@@ -103,10 +112,22 @@ fn extract_tool_json(text: &str) -> Option<serde_json::Value> {
     // Sometimes models output extra whitespace or text like "Here is the tool: { ... }"
     if let Some(start) = text.find('{') {
         if let Some(end) = text.rfind('}') {
-            let json_str = &text[start..=end+1]; // Include the closing brace
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                if val.get("tool").is_some() {
-                    return Some(val);
+            if end >= start {
+                // If end is the last char, end+1 is out of bounds for slice if we use `..=end+1` which implies `end+1` is included in the range to be checked?
+                // Wait, rust slice `[a..b]` includes a, excludes b.
+                // `[a..=b]` includes a and b.
+                // If I want to include the char at index `end`, I should use `[start..=end]`.
+                // Why did the previous code use `end+1`? Maybe confusion with Python or `..` range.
+                // The error was "byte index 47 out of bounds" for a string of len 46.
+                // Index 46 is out of bounds. `end` was 45. `end+1` was 46.
+                // `start..=end+1` tries to include index 46. That's the bug.
+                // I want to include index `end`. So `start..=end`.
+
+                let json_str = &text[start..=end];
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    if val.get("tool").is_some() {
+                        return Some(val);
+                    }
                 }
             }
         }
